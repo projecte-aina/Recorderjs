@@ -77,6 +77,35 @@ export class Recorder {
                 recLength += inputBuffer[0].length;
             }
 
+            function downsampleBuffer(buffer, rate) {
+                if (rate === sampleRate) {
+                    return buffer;
+                }
+                if (rate > sampleRate) {
+                    throw "downsampling rate show be smaller than original sample rate";
+                }
+                var sampleRateRatio = sampleRate / rate;
+                var newLength = Math.round(buffer.length / sampleRateRatio);
+                var result = new Float32Array(newLength);
+                var offsetResult = 0;
+                var offsetBuffer = 0;
+                while (offsetResult < result.length) {
+                    var nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+                    // Use average value of skipped samples
+                    var accum = 0, count = 0;
+                    for (var i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+                        accum += buffer[i];
+                        count++;
+                    }
+                    result[offsetResult] = accum / count;
+                    // Or you can simply get rid of the skipped samples:
+                    // result[offsetResult] = buffer[nextOffsetBuffer];
+                    offsetResult++;
+                    offsetBuffer = nextOffsetBuffer;
+                }
+                return result;
+            }
+
             function exportWAV(type) {
                 let buffers = [];
                 for (let channel = 0; channel < numChannels; channel++) {
@@ -88,7 +117,9 @@ export class Recorder {
                 } else {
                     interleaved = buffers[0];
                 }
-                let dataview = encodeWAV(interleaved);
+                var downsampledBuffer = downsampleBuffer(interleaved, 16000);
+                var dataview = encodeWAV(downsampledBuffer);
+
                 let audioBlob = new Blob([dataview], {type: type});
 
                 this.postMessage({command: 'exportWAV', data: audioBlob});
@@ -171,9 +202,9 @@ export class Recorder {
                 /* channel count */
                 view.setUint16(22, numChannels, true);
                 /* sample rate */
-                view.setUint32(24, sampleRate, true);
+                view.setUint32(24, 16000, true);
                 /* byte rate (sample rate * block align) */
-                view.setUint32(28, sampleRate * 4, true);
+                view.setUint32(28, 16000 * 4, true);
                 /* block align (channel count * bytes per sample) */
                 view.setUint16(32, numChannels * 2, true);
                 /* bits per sample */
